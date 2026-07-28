@@ -41,3 +41,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# local Sites deployment packages
+/.sites-package-stage-*/
+/portflow-shift-*.tar.gz
