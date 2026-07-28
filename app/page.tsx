@@ -31,7 +31,7 @@ const STATUS = {
   SWAP_RECOMMENDED: ["교환 추천", "swap"], SWAP_PENDING: ["교환 대기", "swap"], SWAP_COMPLETED: ["교환 완료", "ok"],
 } as const;
 
-export default function PortFlowShift() {
+export default function BlueSync() {
   const [role, setRole] = useState<Role>("DRIVER");
   const [entered, setEntered] = useState(false);
   const [view, setView] = useState<View>("home");
@@ -43,13 +43,13 @@ export default function PortFlowShift() {
   const candidate = candidates[0];
 
   useEffect(() => {
-    const saved = localStorage.getItem("portflow-state");
+    const saved = localStorage.getItem("bluesync-state");
     if (saved) try {
       const restored = JSON.parse(saved) as Truck[];
       queueMicrotask(() => setTrucks(restored));
     } catch {}
   }, []);
-  useEffect(() => { localStorage.setItem("portflow-state", JSON.stringify(trucks)); }, [trucks]);
+  useEffect(() => { localStorage.setItem("bluesync-state", JSON.stringify(trucks)); }, [trucks]);
 
   const enter = () => {
     setEntered(true);
@@ -64,11 +64,11 @@ export default function PortFlowShift() {
   const reset = () => { setTrucks(initialTrucks); setNotice("데모 데이터가 초기화됐어요."); };
 
   if (!entered) return <main className="login">
-    <div className="login-brand"><Logo /><span>PortFlow <b>Shift</b></span></div>
+    <div className="login-brand"><Logo /><span>BlueSync</span></div>
     <section className="welcome">
       <div><span className="kicker"><Sparkles size={14}/> AI 기반 항만 예약 최적화</span>
         <h1>기다림은 줄이고,<br/><em>운송은 흐르게.</em></h1>
-        <p>도착 시간을 미리 읽고 가장 효율적인 예약 순서를 제안합니다. 오늘의 역할을 선택하고 PortFlow Shift를 시작하세요.</p>
+        <p>도착 시간을 미리 읽고 가장 효율적인 예약 순서를 제안합니다. 오늘의 역할을 선택하고 BlueSync를 시작하세요.</p>
       </div>
       <div className="role-panel"><h2>어떤 역할로 시작할까요?</h2><p>데모에서 언제든 역할을 바꿀 수 있어요.</p>
         <div className="role-list">{roles.map(({id,title,desc,icon:Icon}) =>
@@ -84,13 +84,13 @@ export default function PortFlowShift() {
 
   const roleTitle = roles.find(r=>r.id===role)?.title;
   return <div className="app-shell">
-    <aside><div className="side-brand"><Logo/><span>PortFlow <b>Shift</b></span></div>
+    <aside><div className="side-brand"><Logo/><span>BlueSync</span></div>
       <nav>{(role === "DRIVER" ? NAV : role === "DISPATCHER" ? [{id:"fleet" as View,label:"차량 현황",icon:TruckIcon},...NAV.slice(3)] : [{id:"terminal" as View,label:"운영 대시보드",icon:Gauge},{id:"fleet" as View,label:"차량 현황",icon:TruckIcon}]).map(({id,label,icon:Icon})=>
         <button key={id} className={view===id?"active":""} onClick={()=>setView(id)}><Icon size={19}/>{label}</button>)}</nav>
       <div className="side-foot"><button onClick={()=>setEntered(false)}><Users size={18}/><span><small>현재 역할</small>{roleTitle}</span><ChevronRight size={16}/></button></div>
     </aside>
     <div className="content">
-      <header><div className="mobile-brand"><Logo/><b>PortFlow Shift</b></div><div className="header-title"><span className="live-dot"/> 실시간 운행 데이터</div>
+      <header><div className="mobile-brand"><Logo/><b>BlueSync</b></div><div className="header-title"><span className="live-dot"/> 실시간 운행 데이터</div>
         <div className="header-actions"><span>2026년 7월 28일 화요일</span><button aria-label="알림"><Bell size={19}/><i>3</i></button><button className="avatar">김</button></div></header>
       {notice && <div className="toast"><Check size={18}/>{notice}<button onClick={()=>setNotice("")}><X size={16}/></button></div>}
       <main className="main-content">
@@ -122,7 +122,7 @@ function DriverHome({truck,candidate,onSwap,onQueue}:{truck:Truck;candidate:Retu
       <div className="hero-actions"><button onClick={onSwap}><RefreshCw size={18}/>예약 교환 찾기</button><button onClick={onQueue}><ListFilter size={18}/>가상 대기 등록</button><button><Route size={18}/>경로 확인</button></div>
     </section>
     <div className="metric-grid"><Metric icon={MapPin} label="현재 위치" value="부산 강서구" sub="항만까지 18.4km"/><Metric icon={Clock3} label="예상 대기시간" value="68분" sub="혼잡 시간대"/><Metric icon={ListFilter} label="가상 대기 순번" value="12번째" sub="약 42분 후 호출"/><Metric icon={WalletCards} label="보유 포인트" value="1,240 P" sub="이번 달 +350 P"/></div>
-    {candidate&&<section className="ai-strip"><span><Sparkles size={22}/></span><div><small>PORTFLOW AI</small><strong>더 빠른 방법을 찾았어요</strong><p>예약을 교환하면 두 차량의 총 대기시간을 <b>{candidate.savedMinutes}분</b> 줄일 수 있습니다.</p></div><button onClick={onSwap}>추천 확인</button></section>}
+    {candidate&&<section className="ai-strip"><span><Sparkles size={22}/></span><div><small>BLUESYNC AI</small><strong>더 빠른 방법을 찾았어요</strong><p>예약을 교환하면 두 차량의 총 대기시간을 <b>{candidate.savedMinutes}분</b> 줄일 수 있습니다.</p></div><button onClick={onSwap}>추천 확인</button></section>}
   </>;
 }
 function Metric({icon:Icon,label,value,sub}:{icon:typeof MapPin;label:string;value:string;sub:string}){return <article className="metric"><span><Icon size={19}/></span><small>{label}</small><strong>{value}</strong><p>{sub}</p></article>}
