@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-
 export const metadata: Metadata = {
-  title: "PortFlow Shift | AI 항만 예약 최적화",
-  description: "도착 예측과 AI 예약 교환으로 항만 대기시간을 줄이는 스마트 운송 서비스",
+  title: "PortFlow Shift | 항만 예약 교환",
+  description: "도착 예정 시간을 확인하고 더 효율적인 항만 예약 시간으로 교환하세요.",
   manifest: "/manifest.webmanifest",
 };
 export const viewport: Viewport = { themeColor: "#073f3b" };
