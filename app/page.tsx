@@ -45,7 +45,7 @@ export default function PortFlowShift() {
 
   return <main className="app">
     <header className="topbar">
-      <div className="brand"><Logo /><span>PortFlow <b>Shift</b></span></div>
+      <div className="brand"><img src="/brand/bluesync-logo.png" alt="BlueSync" /></div>
       <span className="live"><i /> 실시간 운행 정보</span>
     </header>
 
@@ -106,7 +106,6 @@ export default function PortFlowShift() {
   </main>;
 }
 
-function Logo() { return <span className="logo" aria-hidden="true"><i /><i /><i /></span>; }
 function ScheduleCard({ label, truck }: { label: string; truck: Truck }) {
   return <article className="schedule-card"><span>{label}</span><strong>{truck.reservationTime}</strong><p>{truck.terminalName}</p></article>;
 }
