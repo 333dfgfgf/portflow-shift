@@ -1,661 +1,146 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Bell, ChartNoAxesCombined, Check, ChevronRight, Clock3, Container,
+  Gauge, Home, ListFilter, MapPin, Menu, RefreshCw, Route, Ship, Sparkles, Truck as TruckIcon,
+  Users, WalletCards, X, Zap
+} from "lucide-react";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { initialTrucks } from "../src/data/mock-trucks";
+import { estimateArrival, getArrivalStatus } from "../src/lib/arrival-estimator";
+import { findSwapCandidates, swapReservations } from "../src/lib/swap-matcher";
+import type { Role, Truck } from "../src/types";
 
-const BOARD_WIDTH = 900;
-const BOARD_HEIGHT = 620;
-const PADDLE_Y = 570;
-const BRICK_COLORS = ["#ff6448", "#ff9f43", "#f4d44d", "#49c5a5", "#6b8cff", "#a66cff"];
+type View = "home" | "swap" | "queue" | "analytics" | "fleet" | "terminal";
+const NAV: {id: View; label: string; icon: typeof Home}[] = [
+  { id: "home", label: "홈", icon: Home }, { id: "swap", label: "예약 교환", icon: RefreshCw },
+  { id: "queue", label: "대기열", icon: ListFilter }, { id: "analytics", label: "운송 분석", icon: ChartNoAxesCombined },
+];
+const roles: {id: Role; title: string; desc: string; icon: typeof TruckIcon}[] = [
+  { id: "DRIVER", title: "화물차 기사", desc: "내 예약과 AI 교환 추천을 확인해요", icon: TruckIcon },
+  { id: "DISPATCHER", title: "배차 담당자", desc: "전체 차량의 운행 현황을 관리해요", icon: Users },
+  { id: "TERMINAL", title: "터미널 운영자", desc: "시간대별 혼잡과 처리량을 확인해요", icon: Ship },
+];
+const analytics = [
+  { day: "월", before: 82, after: 54 }, { day: "화", before: 76, after: 49 }, { day: "수", before: 91, after: 58 },
+  { day: "목", before: 70, after: 44 }, { day: "금", before: 96, after: 61 }, { day: "토", before: 64, after: 39 },
+];
+const STATUS = {
+  ON_TIME: ["정상 입항", "ok"], EARLY: ["조기 입항", "early"], LATE: ["지각 예상", "late"],
+  SWAP_RECOMMENDED: ["교환 추천", "swap"], SWAP_PENDING: ["교환 대기", "swap"], SWAP_COMPLETED: ["교환 완료", "ok"],
+} as const;
 
-type GameStatus = "ready" | "playing" | "paused" | "gameover" | "won";
-
-type Brick = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  hits: number;
-  maxHits: number;
-  color: string;
-  row: number;
-};
-
-type Particle = {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;
-  color: string;
-  size: number;
-};
-
-type GameData = {
-  ball: { x: number; y: number; vx: number; vy: number; radius: number };
-  paddle: { x: number; width: number; targetX: number };
-  bricks: Brick[];
-  particles: Particle[];
-  score: number;
-  combo: number;
-  lives: number;
-  lastTime: number;
-};
-
-function createBricks(): Brick[] {
-  const columns = 9;
-  const rows = 6;
-  const gap = 9;
-  const margin = 38;
-  const width = (BOARD_WIDTH - margin * 2 - gap * (columns - 1)) / columns;
-
-  return Array.from({ length: columns * rows }, (_, index) => {
-    const row = Math.floor(index / columns);
-    const column = index % columns;
-    const maxHits = row < 2 && column % 3 === 1 ? 2 : 1;
-
-    return {
-      x: margin + column * (width + gap),
-      y: 72 + row * 42,
-      width,
-      height: 30,
-      hits: maxHits,
-      maxHits,
-      color: BRICK_COLORS[row],
-      row,
-    };
-  });
-}
-
-function createGame(): GameData {
-  const paddleWidth = 124;
-  const paddleX = (BOARD_WIDTH - paddleWidth) / 2;
-
-  return {
-    ball: {
-      x: BOARD_WIDTH / 2,
-      y: PADDLE_Y - 13,
-      vx: 330,
-      vy: -410,
-      radius: 8,
-    },
-    paddle: { x: paddleX, width: paddleWidth, targetX: paddleX },
-    bricks: createBricks(),
-    particles: [],
-    score: 0,
-    combo: 0,
-    lives: 3,
-    lastTime: 0,
-  };
-}
-
-export default function Home() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const gameRef = useRef<GameData>(createGame());
-  const statusRef = useRef<GameStatus>("ready");
-  const keysRef = useRef({ left: false, right: false });
-  const audioRef = useRef<AudioContext | null>(null);
-  const soundRef = useRef(true);
-  const [status, setStatus] = useState<GameStatus>("ready");
-  const [score, setScore] = useState(0);
-  const [lives, setLives] = useState(3);
-  const [best, setBest] = useState(0);
-  const [combo, setCombo] = useState(0);
-  const [soundOn, setSoundOn] = useState(true);
-
-  const changeStatus = useCallback((next: GameStatus) => {
-    statusRef.current = next;
-    setStatus(next);
-  }, []);
-
-  const playTone = useCallback((kind: "paddle" | "brick" | "life" | "win") => {
-    if (!soundRef.current || typeof window === "undefined") return;
-
-    try {
-      const context = audioRef.current ?? new AudioContext();
-      audioRef.current = context;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      const frequencies = { paddle: 220, brick: 420, life: 120, win: 660 };
-      const durations = { paddle: 0.04, brick: 0.055, life: 0.16, win: 0.24 };
-      const now = context.currentTime;
-
-      oscillator.type = kind === "life" ? "sawtooth" : "square";
-      oscillator.frequency.setValueAtTime(frequencies[kind], now);
-      if (kind === "win") oscillator.frequency.exponentialRampToValueAtTime(990, now + 0.18);
-      gain.gain.setValueAtTime(0.045, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + durations[kind]);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(now);
-      oscillator.stop(now + durations[kind]);
-    } catch {
-      // Audio is optional; the game remains fully playable without it.
-    }
-  }, []);
-
-  const saveBest = useCallback(
-    (nextScore: number) => {
-      if (nextScore <= best) return;
-      setBest(nextScore);
-      try {
-        window.localStorage.setItem("brick-room-best", String(nextScore));
-      } catch {
-        // Local storage can be disabled without affecting play.
-      }
-    },
-    [best],
-  );
-
-  const resetBall = useCallback(() => {
-    const game = gameRef.current;
-    game.paddle.x = (BOARD_WIDTH - game.paddle.width) / 2;
-    game.paddle.targetX = game.paddle.x;
-    game.ball.x = BOARD_WIDTH / 2;
-    game.ball.y = PADDLE_Y - 13;
-    game.ball.vx = Math.random() > 0.5 ? 330 : -330;
-    game.ball.vy = -410;
-    game.combo = 0;
-    setCombo(0);
-  }, []);
-
-  const newGame = useCallback(() => {
-    gameRef.current = createGame();
-    setScore(0);
-    setLives(3);
-    setCombo(0);
-    changeStatus("playing");
-    playTone("paddle");
-  }, [changeStatus, playTone]);
-
-  const startOrResume = useCallback(() => {
-    if (statusRef.current === "gameover" || statusRef.current === "won") {
-      newGame();
-      return;
-    }
-
-    if (statusRef.current === "ready" || statusRef.current === "paused") {
-      changeStatus("playing");
-      playTone("paddle");
-    }
-  }, [changeStatus, newGame, playTone]);
-
-  const togglePause = useCallback(() => {
-    if (statusRef.current === "playing") changeStatus("paused");
-    else if (statusRef.current === "paused") changeStatus("playing");
-    else startOrResume();
-  }, [changeStatus, startOrResume]);
+export default function PortFlowShift() {
+  const [role, setRole] = useState<Role>("DRIVER");
+  const [entered, setEntered] = useState(false);
+  const [view, setView] = useState<View>("home");
+  const [trucks, setTrucks] = useState<Truck[]>(initialTrucks);
+  const [notice, setNotice] = useState("");
+  const [modal, setModal] = useState(false);
+  const me = trucks[0];
+  const candidates = useMemo(() => findSwapCandidates(me, trucks), [me, trucks]);
+  const candidate = candidates[0];
 
   useEffect(() => {
-    try {
-      setBest(Number(window.localStorage.getItem("brick-room-best") ?? 0));
-    } catch {
-      setBest(0);
-    }
+    const saved = localStorage.getItem("portflow-state");
+    if (saved) try {
+      const restored = JSON.parse(saved) as Truck[];
+      queueMicrotask(() => setTrucks(restored));
+    } catch {}
   }, []);
+  useEffect(() => { localStorage.setItem("portflow-state", JSON.stringify(trucks)); }, [trucks]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const context = canvas.getContext("2d");
-    if (!context) return;
-
-    let animationFrame = 0;
-
-    const burst = (x: number, y: number, color: string) => {
-      const game = gameRef.current;
-      for (let i = 0; i < 7; i += 1) {
-        game.particles.push({
-          x,
-          y,
-          vx: (Math.random() - 0.5) * 260,
-          vy: (Math.random() - 0.8) * 220,
-          life: 0.55 + Math.random() * 0.25,
-          color,
-          size: 3 + Math.random() * 4,
-        });
-      }
-    };
-
-    const draw = () => {
-      const game = gameRef.current;
-      const { ball, paddle, bricks, particles } = game;
-
-      context.clearRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
-      context.fillStyle = "#111510";
-      context.fillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
-
-      context.strokeStyle = "rgba(241, 237, 223, 0.05)";
-      context.lineWidth = 1;
-      for (let x = 0; x <= BOARD_WIDTH; x += 36) {
-        context.beginPath();
-        context.moveTo(x, 0);
-        context.lineTo(x, BOARD_HEIGHT);
-        context.stroke();
-      }
-      for (let y = 0; y <= BOARD_HEIGHT; y += 36) {
-        context.beginPath();
-        context.moveTo(0, y);
-        context.lineTo(BOARD_WIDTH, y);
-        context.stroke();
-      }
-
-      context.fillStyle = "rgba(244, 239, 223, 0.45)";
-      context.font = "700 12px Arial, sans-serif";
-      context.letterSpacing = "2px";
-      context.fillText("BREAK / ROOM · FLOOR 01", 38, 42);
-      context.textAlign = "right";
-      context.fillText(`${bricks.length.toString().padStart(2, "0")} BLOCKS`, BOARD_WIDTH - 38, 42);
-      context.textAlign = "left";
-
-      bricks.forEach((brick) => {
-        context.fillStyle = "rgba(0, 0, 0, 0.42)";
-        context.fillRect(brick.x + 4, brick.y + 5, brick.width, brick.height);
-        context.fillStyle = brick.hits < brick.maxHits ? "#f5eee0" : brick.color;
-        context.fillRect(brick.x, brick.y, brick.width, brick.height);
-        context.fillStyle = "rgba(255, 255, 255, 0.35)";
-        context.fillRect(brick.x + 4, brick.y + 4, brick.width - 8, 3);
-        if (brick.maxHits > 1 && brick.hits === brick.maxHits) {
-          context.fillStyle = "rgba(17, 21, 16, 0.5)";
-          context.fillRect(brick.x + brick.width / 2 - 2, brick.y, 4, brick.height);
-        }
-      });
-
-      particles.forEach((particle) => {
-        context.globalAlpha = Math.max(particle.life * 1.5, 0);
-        context.fillStyle = particle.color;
-        context.fillRect(particle.x, particle.y, particle.size, particle.size);
-      });
-      context.globalAlpha = 1;
-
-      context.fillStyle = "#ff6448";
-      context.fillRect(paddle.x + 6, PADDLE_Y + 7, paddle.width, 12);
-      context.fillStyle = "#f4d44d";
-      context.fillRect(paddle.x, PADDLE_Y, paddle.width, 12);
-      context.fillStyle = "#fff9e9";
-      context.fillRect(paddle.x + 7, PADDLE_Y + 3, paddle.width - 14, 3);
-
-      context.beginPath();
-      context.arc(ball.x + 3, ball.y + 4, ball.radius, 0, Math.PI * 2);
-      context.fillStyle = "rgba(0, 0, 0, 0.45)";
-      context.fill();
-      context.beginPath();
-      context.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-      context.fillStyle = "#fff8e6";
-      context.fill();
-    };
-
-    const update = (time: number) => {
-      const game = gameRef.current;
-      if (!game.lastTime) game.lastTime = time;
-      const delta = Math.min((time - game.lastTime) / 1000, 0.025);
-      game.lastTime = time;
-
-      const { ball, paddle } = game;
-      const statusNow = statusRef.current;
-      const keyboardSpeed = 640 * delta;
-
-      if (keysRef.current.left) paddle.targetX -= keyboardSpeed;
-      if (keysRef.current.right) paddle.targetX += keyboardSpeed;
-      paddle.targetX = Math.max(0, Math.min(BOARD_WIDTH - paddle.width, paddle.targetX));
-      paddle.x += (paddle.targetX - paddle.x) * Math.min(delta * 18, 1);
-
-      if (statusNow === "ready") {
-        ball.x = paddle.x + paddle.width / 2;
-        ball.y = PADDLE_Y - 13;
-      }
-
-      if (statusNow === "playing") {
-        const previousX = ball.x;
-        const previousY = ball.y;
-        ball.x += ball.vx * delta;
-        ball.y += ball.vy * delta;
-
-        if (ball.x - ball.radius <= 0 && ball.vx < 0) {
-          ball.x = ball.radius;
-          ball.vx *= -1;
-        } else if (ball.x + ball.radius >= BOARD_WIDTH && ball.vx > 0) {
-          ball.x = BOARD_WIDTH - ball.radius;
-          ball.vx *= -1;
-        }
-
-        if (ball.y - ball.radius <= 0 && ball.vy < 0) {
-          ball.y = ball.radius;
-          ball.vy *= -1;
-        }
-
-        if (
-          ball.vy > 0 &&
-          ball.y + ball.radius >= PADDLE_Y &&
-          ball.y - ball.radius <= PADDLE_Y + 16 &&
-          ball.x >= paddle.x - ball.radius &&
-          ball.x <= paddle.x + paddle.width + ball.radius
-        ) {
-          const hitPosition = (ball.x - (paddle.x + paddle.width / 2)) / (paddle.width / 2);
-          const speed = Math.min(Math.hypot(ball.vx, ball.vy) * 1.025, 720);
-          const angle = hitPosition * 1.05;
-          ball.vx = Math.sin(angle) * speed;
-          ball.vy = -Math.abs(Math.cos(angle) * speed);
-          ball.y = PADDLE_Y - ball.radius - 1;
-          playTone("paddle");
-        }
-
-        const hitIndex = game.bricks.findIndex(
-          (brick) =>
-            ball.x + ball.radius >= brick.x &&
-            ball.x - ball.radius <= brick.x + brick.width &&
-            ball.y + ball.radius >= brick.y &&
-            ball.y - ball.radius <= brick.y + brick.height,
-        );
-
-        if (hitIndex >= 0) {
-          const brick = game.bricks[hitIndex];
-          const cameFromTop = previousY + ball.radius <= brick.y;
-          const cameFromBottom = previousY - ball.radius >= brick.y + brick.height;
-          const cameFromLeft = previousX + ball.radius <= brick.x;
-          const cameFromRight = previousX - ball.radius >= brick.x + brick.width;
-
-          if (cameFromTop || cameFromBottom) ball.vy *= -1;
-          else if (cameFromLeft || cameFromRight) ball.vx *= -1;
-          else ball.vy *= -1;
-
-          brick.hits -= 1;
-          playTone("brick");
-
-          if (brick.hits <= 0) {
-            burst(brick.x + brick.width / 2, brick.y + brick.height / 2, brick.color);
-            game.bricks.splice(hitIndex, 1);
-            game.combo += 1;
-            game.score += 100 + brick.row * 20 + Math.min(game.combo, 12) * 10;
-            setCombo(game.combo);
-          } else {
-            game.score += 40;
-          }
-          setScore(game.score);
-
-          if (game.bricks.length === 0) {
-            changeStatus("won");
-            saveBest(game.score);
-            playTone("win");
-          }
-        }
-
-        if (ball.y - ball.radius > BOARD_HEIGHT) {
-          game.lives -= 1;
-          game.combo = 0;
-          setLives(game.lives);
-          setCombo(0);
-          playTone("life");
-
-          if (game.lives <= 0) {
-            saveBest(game.score);
-            changeStatus("gameover");
-          } else {
-            resetBall();
-            changeStatus("ready");
-          }
-        }
-      }
-
-      game.particles = game.particles
-        .map((particle) => ({
-          ...particle,
-          x: particle.x + particle.vx * delta,
-          y: particle.y + particle.vy * delta,
-          vy: particle.vy + 360 * delta,
-          life: particle.life - delta,
-        }))
-        .filter((particle) => particle.life > 0);
-
-      draw();
-      animationFrame = window.requestAnimationFrame(update);
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (["ArrowLeft", "ArrowRight", "Space", "KeyA", "KeyD", "KeyP"].includes(event.code)) {
-        event.preventDefault();
-      }
-      if (event.code === "ArrowLeft" || event.code === "KeyA") keysRef.current.left = true;
-      if (event.code === "ArrowRight" || event.code === "KeyD") keysRef.current.right = true;
-      if (event.code === "Space") startOrResume();
-      if (event.code === "KeyP") togglePause();
-    };
-
-    const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.code === "ArrowLeft" || event.code === "KeyA") keysRef.current.left = false;
-      if (event.code === "ArrowRight" || event.code === "KeyD") keysRef.current.right = false;
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    animationFrame = window.requestAnimationFrame(update);
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, [changeStatus, playTone, resetBall, saveBest, startOrResume, togglePause]);
-
-  const movePaddle = (clientX: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const bounds = canvas.getBoundingClientRect();
-    const position = ((clientX - bounds.left) / bounds.width) * BOARD_WIDTH;
-    const paddle = gameRef.current.paddle;
-    paddle.targetX = position - paddle.width / 2;
+  const enter = () => {
+    setEntered(true);
+    setView(role === "DRIVER" ? "home" : role === "DISPATCHER" ? "fleet" : "terminal");
   };
-
-  const setDirection = (direction: "left" | "right", pressed: boolean) => {
-    keysRef.current[direction] = pressed;
+  const accept = () => {
+    if (!candidate) return;
+    setTrucks(swapReservations(trucks, me.id, candidate.truck.id));
+    setModal(false); setNotice(`예약 교환이 완료됐어요. 총 대기시간 ${candidate.savedMinutes}분을 줄였습니다.`);
+    setView("home"); setTimeout(() => setNotice(""), 4500);
   };
+  const reset = () => { setTrucks(initialTrucks); setNotice("데모 데이터가 초기화됐어요."); };
 
-  const toggleSound = () => {
-    const next = !soundRef.current;
-    soundRef.current = next;
-    setSoundOn(next);
-  };
+  if (!entered) return <main className="login">
+    <div className="login-brand"><Logo /><span>PortFlow <b>Shift</b></span></div>
+    <section className="welcome">
+      <div><span className="kicker"><Sparkles size={14}/> AI 기반 항만 예약 최적화</span>
+        <h1>기다림은 줄이고,<br/><em>운송은 흐르게.</em></h1>
+        <p>도착 시간을 미리 읽고 가장 효율적인 예약 순서를 제안합니다. 오늘의 역할을 선택하고 PortFlow Shift를 시작하세요.</p>
+      </div>
+      <div className="role-panel"><h2>어떤 역할로 시작할까요?</h2><p>데모에서 언제든 역할을 바꿀 수 있어요.</p>
+        <div className="role-list">{roles.map(({id,title,desc,icon:Icon}) =>
+          <button key={id} className={role === id ? "role active" : "role"} onClick={()=>setRole(id)}>
+            <span className="role-icon"><Icon size={22}/></span><span><strong>{title}</strong><small>{desc}</small></span>
+            <span className="radio">{role === id && <Check size={14}/>}</span>
+          </button>)}</div>
+        <button className="primary" onClick={enter}>대시보드 시작하기 <ChevronRight size={18}/></button>
+      </div>
+    </section>
+    <div className="port-art"><span/><span/><span/><span/></div>
+  </main>;
 
-  const overlayCopy = {
-    ready: {
-      tag: score > 0 ? "BALL READY" : "INSERT SOME COURAGE",
-      title: score > 0 ? "다시 한 번!" : "게임 시작",
-      body: score > 0 ? "패들을 움직여 남은 벽돌을 부수세요." : "패들을 움직이고, 공이 떨어지지 않게 받아내세요.",
-      button: score > 0 ? "계속하기" : "플레이",
-    },
-    paused: {
-      tag: "TIME OUT",
-      title: "잠깐 멈춤",
-      body: "숨을 고르고 다시 리듬을 이어가세요.",
-      button: "계속하기",
-    },
-    gameover: {
-      tag: "NO MORE BALLS",
-      title: "게임 오버",
-      body: `이번 점수는 ${score.toLocaleString("ko-KR")}점. 다시 기록을 노려보세요.`,
-      button: "다시 도전",
-    },
-    won: {
-      tag: "FLOOR CLEARED",
-      title: "완벽해요!",
-      body: `모든 벽돌을 정리하고 ${score.toLocaleString("ko-KR")}점을 기록했어요.`,
-      button: "한 판 더",
-    },
-  } as const;
-
-  const currentOverlay = status === "playing" ? null : overlayCopy[status];
-
-  return (
-    <div className="site-shell">
-      <header className="topbar">
-        <a className="brand" href="#game" aria-label="브레이크 룸 게임으로 이동">
-          <span className="brand-mark" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>BREAK / ROOM</span>
-        </a>
-
-        <div className="topbar-actions">
-          <span className="best-score">BEST {best.toString().padStart(6, "0")}</span>
-          <button className="sound-button" type="button" onClick={toggleSound} aria-pressed={soundOn}>
-            SOUND <span>{soundOn ? "ON" : "OFF"}</span>
-          </button>
-        </div>
-      </header>
-
-      <main>
-        <section className="hero">
-          <div className="intro-copy">
-            <p className="eyebrow">
-              <span>NO. 01</span> KOREAN WEB ARCADE
-            </p>
-            <h1>
-              벽돌을 깨고,
-              <br />
-              <em>리듬을 타세요.</em>
-            </h1>
-            <p className="lead">
-              간단한 규칙, 선명한 타격감. 패들 하나로 화면 속 모든 벽돌을 정리하는 클래식
-              아케이드입니다.
-            </p>
-
-            <button className="primary-button" type="button" onClick={newGame}>
-              <span>{status === "playing" ? "처음부터 다시" : "게임 시작하기"}</span>
-              <span aria-hidden="true">↗</span>
-            </button>
-
-            <div className="control-note">
-              <span className="control-icon" aria-hidden="true">
-                ←
-              </span>
-              <span className="control-icon" aria-hidden="true">
-                →
-              </span>
-              <p>
-                <strong>MOVE</strong>
-                방향키 · A/D · 마우스 · 터치
-              </p>
-            </div>
-          </div>
-
-          <div className="game-column" id="game">
-            <div className="game-meta" aria-live="polite">
-              <div>
-                <span>SCORE</span>
-                <strong>{score.toString().padStart(6, "0")}</strong>
-              </div>
-              <div>
-                <span>COMBO</span>
-                <strong>×{combo.toString().padStart(2, "0")}</strong>
-              </div>
-              <div>
-                <span>BALLS</span>
-                <strong>
-                  {Array.from({ length: 3 }, (_, index) => (
-                    <i className={index < lives ? "life active" : "life"} key={index} />
-                  ))}
-                </strong>
-              </div>
-              <button
-                className="pause-button"
-                type="button"
-                onClick={togglePause}
-                aria-label={status === "paused" ? "게임 계속하기" : "게임 일시정지"}
-              >
-                {status === "paused" ? "▶" : "Ⅱ"}
-              </button>
-            </div>
-
-            <div className="game-frame">
-              <canvas
-                ref={canvasRef}
-                width={BOARD_WIDTH}
-                height={BOARD_HEIGHT}
-                aria-label="벽돌깨기 게임 화면. 방향키, A와 D 키, 마우스 또는 터치로 패들을 움직입니다."
-                onPointerMove={(event) => movePaddle(event.clientX)}
-                onPointerDown={(event) => {
-                  movePaddle(event.clientX);
-                  if (statusRef.current !== "playing") startOrResume();
-                }}
-              />
-
-              {currentOverlay && (
-                <div className="game-overlay">
-                  <p>{currentOverlay.tag}</p>
-                  <h2>{currentOverlay.title}</h2>
-                  <span>{currentOverlay.body}</span>
-                  <button type="button" onClick={startOrResume}>
-                    {currentOverlay.button} <b aria-hidden="true">→</b>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="mobile-controls" aria-label="모바일 게임 조작">
-              <button
-                type="button"
-                aria-label="왼쪽으로 이동"
-                onPointerDown={() => setDirection("left", true)}
-                onPointerUp={() => setDirection("left", false)}
-                onPointerLeave={() => setDirection("left", false)}
-                onPointerCancel={() => setDirection("left", false)}
-              >
-                ←
-              </button>
-              <button type="button" onClick={togglePause}>
-                {status === "playing" ? "PAUSE" : "PLAY"}
-              </button>
-              <button
-                type="button"
-                aria-label="오른쪽으로 이동"
-                onPointerDown={() => setDirection("right", true)}
-                onPointerUp={() => setDirection("right", false)}
-                onPointerLeave={() => setDirection("right", false)}
-                onPointerCancel={() => setDirection("right", false)}
-              >
-                →
-              </button>
-            </div>
-
-            <div className="game-caption">
-              <span>CLASSIC MODE / 3 BALLS</span>
-              <span>SPACE: START · P: PAUSE</span>
-            </div>
-          </div>
-        </section>
-
-        <section className="rules" aria-labelledby="rules-title">
-          <div className="rules-heading">
-            <p>HOW TO PLAY</p>
-            <h2 id="rules-title">세 가지만 기억하세요.</h2>
-          </div>
-          <ol>
-            <li>
-              <span>01</span>
-              <strong>받아내기</strong>
-              <p>공이 바닥으로 떨어지기 전에 패들로 정확하게 받아내세요.</p>
-            </li>
-            <li>
-              <span>02</span>
-              <strong>각도 만들기</strong>
-              <p>패들 가장자리에 맞힐수록 공이 더 날카로운 각도로 튕겨 나갑니다.</p>
-            </li>
-            <li>
-              <span>03</span>
-              <strong>콤보 쌓기</strong>
-              <p>실수 없이 벽돌을 연속으로 깨고 더 높은 보너스 점수를 노리세요.</p>
-            </li>
-          </ol>
-        </section>
+  const roleTitle = roles.find(r=>r.id===role)?.title;
+  return <div className="app-shell">
+    <aside><div className="side-brand"><Logo/><span>PortFlow <b>Shift</b></span></div>
+      <nav>{(role === "DRIVER" ? NAV : role === "DISPATCHER" ? [{id:"fleet" as View,label:"차량 현황",icon:TruckIcon},...NAV.slice(3)] : [{id:"terminal" as View,label:"운영 대시보드",icon:Gauge},{id:"fleet" as View,label:"차량 현황",icon:TruckIcon}]).map(({id,label,icon:Icon})=>
+        <button key={id} className={view===id?"active":""} onClick={()=>setView(id)}><Icon size={19}/>{label}</button>)}</nav>
+      <div className="side-foot"><button onClick={()=>setEntered(false)}><Users size={18}/><span><small>현재 역할</small>{roleTitle}</span><ChevronRight size={16}/></button></div>
+    </aside>
+    <div className="content">
+      <header><div className="mobile-brand"><Logo/><b>PortFlow Shift</b></div><div className="header-title"><span className="live-dot"/> 실시간 운행 데이터</div>
+        <div className="header-actions"><span>2026년 7월 28일 화요일</span><button aria-label="알림"><Bell size={19}/><i>3</i></button><button className="avatar">김</button></div></header>
+      {notice && <div className="toast"><Check size={18}/>{notice}<button onClick={()=>setNotice("")}><X size={16}/></button></div>}
+      <main className="main-content">
+        {view === "home" && <DriverHome truck={me} candidate={candidate} onSwap={()=>setView("swap")} onQueue={()=>setView("queue")}/>}
+        {view === "swap" && <SwapScreen me={me} candidate={candidate} onAccept={()=>setModal(true)} onReject={()=>setNotice("이 후보를 제외하고 다음 교환을 찾고 있어요.")}/>}
+        {view === "queue" && <QueueScreen/>}
+        {view === "analytics" && <AnalyticsScreen/>}
+        {view === "fleet" && <FleetScreen trucks={trucks}/>}
+        {view === "terminal" && <TerminalScreen trucks={trucks}/>}
       </main>
-
-      <footer>
-        <span>BREAK / ROOM © 2026</span>
-        <p>ONE PADDLE. ONE BALL. ZERO EXCUSES.</p>
-        <a href="#game">BACK TO GAME ↑</a>
-      </footer>
+      <nav className="bottom-nav">{NAV.map(({id,label,icon:Icon})=><button key={id} className={view===id?"active":""} onClick={()=>setView(id)}><Icon size={20}/><span>{label}</span></button>)}<button onClick={()=>setEntered(false)}><Menu size={20}/><span>더보기</span></button></nav>
+      <button className="reset" onClick={reset}>데모 초기화</button>
     </div>
-  );
+    {modal && <div className="modal-wrap" role="dialog" aria-modal="true"><div className="modal"><span className="modal-icon"><RefreshCw/></span><h2>예약을 교환할까요?</h2><p>내 예약과 <b>{candidate?.truck.truckNumber}</b> 차량의 예약 시간이 서로 변경됩니다. 완료 후에는 되돌릴 수 없어요.</p><div className="modal-summary"><span>예상 대기시간 절감</span><strong>-{candidate?.savedMinutes}분</strong></div><button className="primary" onClick={accept}>교환 확정하기</button><button className="ghost" onClick={()=>setModal(false)}>취소</button></div></div>}
+  </div>;
 }
+
+function Logo(){return <span className="logo" aria-hidden="true"><i/><i/><i/></span>}
+function PageHead({eyebrow,title,desc}:{eyebrow:string;title:string;desc:string}){return <div className="page-head"><div><span>{eyebrow}</span><h1>{title}</h1><p>{desc}</p></div><button className="icon-btn"><Bell size={19}/></button></div>}
+function StatusBadge({status}:{status:Truck["status"]}){const [label,tone]=STATUS[status];return <span className={`badge ${tone}`}><i/>{label}</span>}
+
+function DriverHome({truck,candidate,onSwap,onQueue}:{truck:Truck;candidate:ReturnType<typeof findSwapCandidates>[0];onSwap:()=>void;onQueue:()=>void}) {
+  const eta=estimateArrival(truck); const status=getArrivalStatus(truck.reservationTime,eta);
+  return <><PageHead eyebrow="DRIVER DASHBOARD" title="안녕하세요, 김도윤 기사님" desc="오늘의 운행 일정과 항만 상황을 확인하세요."/>
+    <section className="hero-card">
+      <div className="hero-top"><div><span className="section-label">오늘의 예약</span><h2>{truck.terminalName}</h2><p><Container size={16}/>{truck.operationType==="IMPORT"?"수입 · 반입":"수출 · 반출"} <b>·</b> {truck.containerNumber}</p></div><StatusBadge status={status}/></div>
+      <div className="time-line"><div><small>예약 시간</small><strong>{truck.reservationTime}</strong><span>2026. 07. 28</span></div><div className="route-line"><i/><span><TruckIcon size={20}/></span><i/></div><div className="accent"><small>예상 도착</small><strong>{eta}</strong><span>{truck.trafficLevel==="CONGESTED"?"교통 혼잡 반영":"현재 교통 반영"}</span></div></div>
+      <div className="delay-callout"><span><Clock3 size={20}/></span><div><strong>예약보다 35분 늦게 도착할 예정이에요</strong><p>대기시간을 줄일 수 있는 예약 교환 후보를 찾았습니다.</p></div><button onClick={onSwap}>AI 추천 보기 <ChevronRight size={17}/></button></div>
+      <div className="hero-actions"><button onClick={onSwap}><RefreshCw size={18}/>예약 교환 찾기</button><button onClick={onQueue}><ListFilter size={18}/>가상 대기 등록</button><button><Route size={18}/>경로 확인</button></div>
+    </section>
+    <div className="metric-grid"><Metric icon={MapPin} label="현재 위치" value="부산 강서구" sub="항만까지 18.4km"/><Metric icon={Clock3} label="예상 대기시간" value="68분" sub="혼잡 시간대"/><Metric icon={ListFilter} label="가상 대기 순번" value="12번째" sub="약 42분 후 호출"/><Metric icon={WalletCards} label="보유 포인트" value="1,240 P" sub="이번 달 +350 P"/></div>
+    {candidate&&<section className="ai-strip"><span><Sparkles size={22}/></span><div><small>PORTFLOW AI</small><strong>더 빠른 방법을 찾았어요</strong><p>예약을 교환하면 두 차량의 총 대기시간을 <b>{candidate.savedMinutes}분</b> 줄일 수 있습니다.</p></div><button onClick={onSwap}>추천 확인</button></section>}
+  </>;
+}
+function Metric({icon:Icon,label,value,sub}:{icon:typeof MapPin;label:string;value:string;sub:string}){return <article className="metric"><span><Icon size={19}/></span><small>{label}</small><strong>{value}</strong><p>{sub}</p></article>}
+
+function SwapScreen({me,candidate,onAccept,onReject}:{me:Truck;candidate:ReturnType<typeof findSwapCandidates>[0];onAccept:()=>void;onReject:()=>void}) {
+ if(!candidate)return <Empty title="교환 가능한 차량이 없어요" body="가상 대기열에 등록하면 적절한 시점에 다시 알려드릴게요."/>;
+ return <><PageHead eyebrow="AI RESERVATION SWAP" title="예약 교환 추천" desc="도착 예측과 항만 혼잡도를 분석해 가장 효율적인 교환을 찾았어요."/>
+   <div className="impact-row"><div><small>총 대기시간 절감</small><strong>-{candidate.savedMinutes}분</strong></div><div><small>공회전 감소</small><strong>-38분</strong></div><div><small>예상 탄소배출 감소</small><strong>-6.8kg</strong></div></div>
+   <section className="swap-card"><div className="ai-title"><span><Sparkles size={19}/></span><div><small>AI 추천 · 매칭 정확도 94%</small><h2>서로의 빈 시간을 채우는 최적 교환</h2></div></div>
+    <div className="truck-compare"><TruckCompare label="내 차량" truck={me}/><div className="swap-circle"><RefreshCw/></div><TruckCompare label="교환 차량" truck={candidate.truck}/></div>
+    <div className="reason"><Zap size={19}/><p><b>왜 이 교환을 추천하나요?</b><br/>내 차량은 35분 지각이 예상되고, 상대 차량은 55분 일찍 도착합니다. 예약 시간을 바꾸면 두 차량의 대기와 공회전을 함께 줄일 수 있어요.</p></div>
+    <div className="swap-actions"><button className="primary" onClick={onAccept}>교환 수락</button><button className="secondary" onClick={onReject}>교환 거절</button><button className="text-btn">다른 교환 찾기</button></div>
+   </section></>;
+}
+function TruckCompare({label,truck}:{label:string;truck:Truck}){return <article className="truck-box"><span>{label}</span><h3>{truck.truckNumber}</h3><p>{truck.driverName} · {truck.companyName}</p><dl><div><dt>기존 예약</dt><dd>{truck.reservationTime}</dd></div><div><dt>예상 도착</dt><dd>{truck.estimatedArrivalTime}</dd></div><div><dt>예상 대기</dt><dd>{truck.estimatedWaitingMinutes}분</dd></div></dl></article>}
+
+function QueueScreen(){const spots=[["신항 북컨테이너 대기장","2.4km","약 7분","여유"],["부산항 화물차 휴게소","5.8km","약 14분","보통"],["녹산 임시 대기장","8.1km","약 19분","여유"]];return <><PageHead eyebrow="VIRTUAL QUEUE" title="가상 대기열" desc="항만 밖에서 편안하게 대기하고 호출 시간에 맞춰 출발하세요."/><section className="queue-hero"><div><small>현재 대기 순번</small><strong>12</strong><span>번째</span></div><div><small>예상 호출 시간</small><b>오전 11:42</b><p>약 42분 남음</p></div><div><small>터미널 혼잡도</small><b>높음</b><p>현재 38대 대기 중</p></div></section><div className="leave-alert"><Clock3/><div><b>오전 11:20에 항만으로 출발하세요</b><p>현재 위치에서 예상 이동시간은 18분입니다.</p></div></div><h2 className="subheading">주변 대기 장소</h2><div className="place-list">{spots.map((s,i)=><article key={s[0]}><span className="place-num">{i+1}</span><div><h3>{s[0]}</h3><p><MapPin size={14}/>{s[1]} · 이동 {s[2]}</p></div><div className="amenities"><span>주차 가능</span><span>{i===1?"식당":"화장실"}</span><span>{i===0?"충전소":"편의점"}</span></div><b className={s[3]==="여유"?"free":""}>{s[3]}</b></article>)}</div></>}
+function AnalyticsScreen(){return <><PageHead eyebrow="EFFICIENCY ANALYTICS" title="운송 효율 분석" desc="예약 교환으로 줄어든 시간과 비용을 한눈에 확인하세요."/><div className="metric-grid analytics-metrics"><Metric icon={Clock3} label="이번 달 절감 대기시간" value="8시간 24분" sub="지난달 대비 18% 향상"/><Metric icon={TruckIcon} label="감소한 지각 운행" value="14건" sub="정시 도착률 92%"/><Metric icon={Gauge} label="줄어든 공회전" value="5시간 10분" sub="연료 약 41L 절감"/><Metric icon={Sparkles} label="교환 참여" value="9회" sub="성공률 100%"/></div><section className="chart-card"><div><h2>교환 전·후 평균 대기시간</h2><p>단위: 분</p></div><ResponsiveContainer width="100%" height={280}><BarChart data={analytics}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="day" axisLine={false} tickLine={false}/><Tooltip/><Bar dataKey="before" name="교환 전" fill="#cbd5e1" radius={[6,6,0,0]}/><Bar dataKey="after" name="교환 후" fill="#0b7770" radius={[6,6,0,0]}/></BarChart></ResponsiveContainer></section></>}
+function FleetScreen({trucks}:{trucks:Truck[]}){const [filter,setFilter]=useState("전체");const fs=trucks.filter(t=>filter==="전체"||STATUS[t.status][0].includes(filter));return <><PageHead eyebrow="FLEET CONTROL" title="차량 운행 현황" desc={`${trucks.length}대 차량의 예약과 도착 상태를 확인하세요.`}/><div className="filters">{["전체","정상","조기","지각","교환"].map(f=><button className={filter===f?"active":""} key={f} onClick={()=>setFilter(f)}>{f}</button>)}</div><div className="fleet-table"><div className="table-head"><span>차량 / 기사</span><span>터미널</span><span>예약</span><span>예상 도착</span><span>상태</span><span>대기</span></div>{fs.map(t=><div className="table-row" key={t.id}><span><b>{t.truckNumber}</b><small>{t.driverName} · {t.companyName}</small></span><span>{t.terminalName}</span><span>{t.reservationTime}</span><span>{t.estimatedArrivalTime}</span><span><StatusBadge status={t.status}/></span><span><b>{t.estimatedWaitingMinutes}분</b></span></div>)}</div></>}
+function TerminalScreen({trucks}:{trucks:Truck[]}){const data=[{t:"08시",r:8,c:12},{t:"09시",r:14,c:16},{t:"10시",r:21,c:18},{t:"11시",r:17,c:19},{t:"12시",r:11,c:17},{t:"13시",r:16,c:20},{t:"14시",r:19,c:21}];return <><PageHead eyebrow="TERMINAL OPERATIONS" title="부산신항 운영 대시보드" desc="시간대별 예약 밀도와 처리 가능 차량을 비교합니다."/><div className="impact-row"><div><small>오늘 예약 차량</small><strong>{trucks.length * 4}대</strong></div><div><small>현재 지각 예상</small><strong>{trucks.filter(t=>t.status==="LATE").length}대</strong></div><div><small>AI 교환 완료</small><strong>7건</strong></div></div><section className="chart-card"><div><h2>시간대별 예약 · 처리 용량</h2><p>현재 10시 혼잡 구간입니다</p></div><ResponsiveContainer width="100%" height={310}><AreaChart data={data}><defs><linearGradient id="teal" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0b7770" stopOpacity=".35"/><stop offset="100%" stopColor="#0b7770" stopOpacity=".02"/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="t" axisLine={false} tickLine={false}/><Tooltip/><Area type="monotone" dataKey="r" name="예약 차량" stroke="#0b7770" fill="url(#teal)" strokeWidth={3}/><Area type="monotone" dataKey="c" name="처리 가능" stroke="#e2a73b" fill="transparent" strokeWidth={2}/></AreaChart></ResponsiveContainer></section></>}
+function Empty({title,body}:{title:string;body:string}){return <div className="empty"><RefreshCw/><h2>{title}</h2><p>{body}</p></div>}
