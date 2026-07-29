@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   Bell, ChartNoAxesCombined, Check, ChevronRight, Clock3, Container,
-  Gauge, Home, ListFilter, MapPin, Menu, RefreshCw, Route, Ship, Sparkles, Truck as TruckIcon,
+  CircleHelp, Gauge, Home, ListFilter, MapPin, Menu, RefreshCw, Route, Ship, Sparkles, Truck as TruckIcon,
   Users, X, Zap
 } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
@@ -44,6 +44,8 @@ export default function BlueSync() {
   const [notificationsOpen,setNotificationsOpen]=useState(false);
   const [candidateIndex,setCandidateIndex]=useState(0);
   const [swapLoading,setSwapLoading]=useState(false);
+  const [guideOpen,setGuideOpen]=useState(false);
+  const [guideStep,setGuideStep]=useState(0);
   const me = trucks[0];
   const candidates = useMemo(() => findSwapCandidates(me, trucks), [me, trucks]);
   const candidate = candidates[candidateIndex % Math.max(candidates.length,1)];
@@ -61,6 +63,15 @@ export default function BlueSync() {
   const enter = () => {
     setEntered(true);
     setView(role === "DRIVER" ? "home" : role === "DISPATCHER" ? "fleet" : "terminal");
+    if (!localStorage.getItem("bluesync-guide-seen")) {
+      setGuideStep(0);
+      setGuideOpen(true);
+    }
+  };
+  const openGuide = () => { setGuideStep(0); setGuideOpen(true); };
+  const closeGuide = () => {
+    localStorage.setItem("bluesync-guide-seen", "true");
+    setGuideOpen(false);
   };
   const accept = () => {
     if (!candidate) return;
@@ -111,9 +122,82 @@ export default function BlueSync() {
       </main>
       <nav className="bottom-nav">{NAV.map(({id,label,icon:Icon})=><button key={id} className={view===id?"active":""} onClick={()=>setView(id)}><Icon size={20}/><span>{label}</span></button>)}<button onClick={()=>setEntered(false)}><Menu size={20}/><span>더보기</span></button></nav>
       <button className="reset" onClick={reset}>데모 초기화</button>
+      <button className="guide-reopen" onClick={openGuide}><CircleHelp size={15}/>이용 가이드</button>
     </div>
     {modal && <div className="modal-wrap" role="dialog" aria-modal="true"><div className="modal"><span className="modal-icon"><RefreshCw/></span><h2>예약을 교환할까요?</h2><p>내 예약과 <b>{candidate?.truck.truckNumber}</b> 차량의 예약 시간이 서로 변경됩니다. 완료 후에는 되돌릴 수 없어요.</p><div className="modal-summary"><span>예상 대기시간 절감</span><strong>-{candidate?.savedMinutes}분</strong></div><button className="primary" onClick={accept}>교환 확정하기</button><button className="ghost" onClick={()=>setModal(false)}>취소</button></div></div>}
     {routeModal && <RouteMapModal onClose={()=>setRouteModal(false)}/>}
+    {guideOpen && <GuideModal step={guideStep} onStep={setGuideStep} onClose={closeGuide}/>}
+  </div>;
+}
+
+const GUIDE_STEPS = [
+  {
+    icon: Home,
+    eyebrow: "STEP 1 · 오늘의 운행",
+    title: "예약 카드부터 확인하세요",
+    body: "홈에서 예약 시간, 예상 도착 시간, 터미널과 컨테이너 정보를 한눈에 확인할 수 있어요.",
+    tip: "빨간 예상 도착 시간은 지각 가능성이 높다는 뜻이에요.",
+  },
+  {
+    icon: Clock3,
+    eyebrow: "STEP 2 · 도착 상태",
+    title: "배지로 상황을 빠르게 판단하세요",
+    body: "정상 입항, 조기 입항, 지각 예상 상태를 색상과 문구로 함께 표시해 운전 중에도 쉽게 구분할 수 있어요.",
+    tip: "지각 예상 또는 조기 입항이면 예약 교환 후보가 자동으로 검색돼요.",
+  },
+  {
+    icon: RefreshCw,
+    eyebrow: "STEP 3 · AI 예약 교환",
+    title: "추천 이유와 절감 효과를 비교하세요",
+    body: "두 차량의 예약·도착·대기시간을 비교한 뒤, 총 대기시간이 실제로 줄어드는 교환만 추천합니다.",
+    tip: "교환 수락 전 절감 시간과 추천 이유를 꼭 확인하세요.",
+  },
+  {
+    icon: ListFilter,
+    eyebrow: "STEP 4 · 가상 대기열",
+    title: "항만 밖에서 편하게 기다리세요",
+    body: "현재 순번과 예상 호출 시간을 확인하고, 안내된 추천 출발 시간에 맞춰 항만으로 이동하면 돼요.",
+    tip: "주변 대기 장소의 거리와 편의시설도 함께 확인할 수 있어요.",
+  },
+  {
+    icon: ChartNoAxesCombined,
+    eyebrow: "STEP 5 · 운송 분석",
+    title: "줄어든 시간과 비용을 확인하세요",
+    body: "운송 분석에서 교환 전후 대기시간, 공회전 감소, 정시 도착률 등 누적 효과를 확인할 수 있어요.",
+    tip: "이제 홈의 AI 추천부터 직접 사용해 보세요!",
+  },
+] as const;
+
+function GuideModal({step,onStep,onClose}:{step:number;onStep:(step:number)=>void;onClose:()=>void}) {
+  const current = GUIDE_STEPS[step];
+  const Icon = current.icon;
+  const last = step === GUIDE_STEPS.length - 1;
+  return <div className="guide-wrap" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+    <section className="guide-modal">
+      <div className="guide-top">
+        <div className="guide-brand"><Logo/><span>처음 오셨나요?</span></div>
+        <button onClick={onClose} aria-label="이용 가이드 닫기"><X size={20}/></button>
+      </div>
+      <div className="guide-progress" aria-label={`이용 가이드 ${step + 1}/${GUIDE_STEPS.length}`}>
+        {GUIDE_STEPS.map((_,index)=><i key={index} className={index <= step ? "active" : ""}/>)}
+      </div>
+      <div className="guide-visual"><span><Icon size={34}/></span><i/><i/><i/></div>
+      <div className="guide-copy">
+        <small>{current.eyebrow}</small>
+        <h2 id="guide-title">{current.title}</h2>
+        <p>{current.body}</p>
+        <div><Sparkles size={17}/><span>{current.tip}</span></div>
+      </div>
+      <div className="guide-actions">
+        {!last ? <button className="guide-skip" onClick={onClose}>건너뛰기</button> : <span/>}
+        <div>
+          {step > 0 && <button className="guide-prev" onClick={()=>onStep(step-1)}>이전</button>}
+          <button className="guide-next" onClick={()=>last ? onClose() : onStep(step+1)}>
+            {last ? "BlueSync 시작하기" : "다음"} <ChevronRight size={17}/>
+          </button>
+        </div>
+      </div>
+    </section>
   </div>;
 }
 
