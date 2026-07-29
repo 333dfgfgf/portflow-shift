@@ -81,24 +81,28 @@ export default function BlueSync() {
   };
   const reset = () => { setTrucks(initialTrucks); setNotice("데모 데이터가 초기화됐어요."); };
 
-  if (!entered) return <main className="login">
-    <div className="login-brand"><Logo /><span>BlueSync</span></div>
-    <section className="welcome">
-      <div><span className="kicker"><Sparkles size={14}/> AI 기반 항만 예약 최적화</span>
-        <h1>항만의 초침을 맞추다,<br/><em>BlueSync</em></h1>
-        <p>도착 시간을 미리 읽고 가장 효율적인 예약 순서를 제안합니다. 오늘의 역할을 선택하고 BlueSync를 시작하세요.</p>
-      </div>
-      <div className="role-panel"><h2>어떤 역할로 시작할까요?</h2><p>데모에서 언제든 역할을 바꿀 수 있어요.</p>
-        <div className="role-list">{roles.map(({id,title,desc,icon:Icon}) =>
-          <button key={id} className={role === id ? "role active" : "role"} onClick={()=>setRole(id)}>
-            <span className="role-icon"><Icon size={22}/></span><span><strong>{title}</strong><small>{desc}</small></span>
-            <span className="radio">{role === id && <Check size={14}/>}</span>
-          </button>)}</div>
-        <button className="primary" onClick={enter}>시작하기 <ChevronRight size={18}/></button>
-      </div>
-    </section>
-    <div className="port-art"><span/><span/><span/><span/></div>
-  </main>;
+  if (!entered) return <>
+    <main className="login">
+      <div className="login-brand"><Logo /><span>BlueSync</span></div>
+      <section className="welcome">
+        <div><span className="kicker"><Sparkles size={14}/> AI 기반 항만 예약 최적화</span>
+          <h1>항만의 초침을 맞추다,<br/><em>BlueSync</em></h1>
+          <p>도착 시간을 미리 읽고 가장 효율적인 예약 순서를 제안합니다. 오늘의 역할을 선택하고 BlueSync를 시작하세요.</p>
+        </div>
+        <div className="role-panel"><h2>어떤 역할로 시작할까요?</h2><p>데모에서 언제든 역할을 바꿀 수 있어요.</p>
+          <div className="role-list">{roles.map(({id,title,desc,icon:Icon}) =>
+            <button key={id} className={role === id ? "role active" : "role"} onClick={()=>setRole(id)}>
+              <span className="role-icon"><Icon size={22}/></span><span><strong>{title}</strong><small>{desc}</small></span>
+              <span className="radio">{role === id && <Check size={14}/>}</span>
+            </button>)}</div>
+          <button className="primary" onClick={enter}>시작하기 <ChevronRight size={18}/></button>
+          <button className="guide-entry" onClick={openGuide}><CircleHelp size={17}/>이용 가이드 미리보기</button>
+        </div>
+      </section>
+      <div className="port-art"><span/><span/><span/><span/></div>
+    </main>
+    {guideOpen && <GuideModal step={guideStep} onStep={setGuideStep} onClose={closeGuide}/>}
+  </>;
 
   const roleTitle = roles.find(r=>r.id===role)?.title;
   return <div className="app-shell">

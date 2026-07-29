@@ -34,6 +34,7 @@
 
 /* First-use guide */
 .guide-reopen{position:fixed;right:104px;bottom:18px;z-index:35;display:flex;align-items:center;gap:6px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.94);color:var(--teal);font-size:11px;font-weight:800;box-shadow:0 8px 24px rgba(10,45,70,.08)}
+.guide-entry{width:100%;height:44px;display:flex;align-items:center;justify-content:center;gap:7px;margin-top:10px;border:0;background:transparent;color:var(--teal);font-size:12px;font-weight:800}
 .guide-wrap{position:fixed;inset:0;z-index:150;display:grid;place-items:center;padding:20px;background:rgba(4,27,57,.68);backdrop-filter:blur(7px)}
 .guide-modal{width:min(520px,100%);overflow:hidden;border-radius:24px;background:#fff;box-shadow:0 32px 90px rgba(0,20,50,.28)}
 .guide-top{display:flex;align-items:center;justify-content:space-between;padding:22px 26px 14px}
