@@ -85,7 +85,7 @@ export default function BlueSync() {
     <div className="login-brand"><Logo /><span>BlueSync</span></div>
     <section className="welcome">
       <div><span className="kicker"><Sparkles size={14}/> AI 기반 항만 예약 최적화</span>
-        <h1>기다림은 줄이고,<br/><em>운송은 흐르게.</em></h1>
+        <h1>항만의 초침을 맞추다,<br/><em>BlueSync</em></h1>
         <p>도착 시간을 미리 읽고 가장 효율적인 예약 순서를 제안합니다. 오늘의 역할을 선택하고 BlueSync를 시작하세요.</p>
       </div>
       <div className="role-panel"><h2>어떤 역할로 시작할까요?</h2><p>데모에서 언제든 역할을 바꿀 수 있어요.</p>
@@ -120,7 +120,7 @@ export default function BlueSync() {
         {view === "fleet" && <FleetScreen trucks={trucks}/>}
         {view === "terminal" && <TerminalScreen trucks={trucks}/>}
       </main>
-      <nav className="bottom-nav">{NAV.map(({id,label,icon:Icon})=><button key={id} className={view===id?"active":""} onClick={()=>setView(id)}><Icon size={20}/><span>{label}</span></button>)}<button onClick={()=>setEntered(false)}><Menu size={20}/><span>더보기</span></button></nav>
+      <nav className="bottom-nav">{NAV.map(({id,label,icon:Icon})=><button key={id} className={view===id?"active":""} onClick={()=>setView(id)}><Icon size={20}/><span>{label}</span></button>)}<button onClick={()=>setEntered(false)}><Menu size={20}/><span>돌아가기</span></button></nav>
       <button className="reset" onClick={reset}>데모 초기화</button>
       <button className="guide-reopen" onClick={openGuide}><CircleHelp size={15}/>이용 가이드</button>
     </div>
