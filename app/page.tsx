@@ -94,7 +94,7 @@ export default function BlueSync() {
             <span className="role-icon"><Icon size={22}/></span><span><strong>{title}</strong><small>{desc}</small></span>
             <span className="radio">{role === id && <Check size={14}/>}</span>
           </button>)}</div>
-        <button className="primary" onClick={enter}>대시보드 시작하기 <ChevronRight size={18}/></button>
+        <button className="primary" onClick={enter}>시작하기 <ChevronRight size={18}/></button>
       </div>
     </section>
     <div className="port-art"><span/><span/><span/><span/></div>
