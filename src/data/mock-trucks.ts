@@ -13,4 +13,4 @@ const raw = [
 ["T11","경남 87아 9034","배진호","동해물류","PNC","부산신항 PNC","EXPORT","APZU 2084119","REFRIGERATED","13:30","13:12",10,45,"NORMAL",31,"SWAP_RECOMMENDED",true,980],
 ["T12","부산 85자 4421","강승민","대양로지스","BCT","부산항 BCT","EXPORT","WHLU 6910872","GENERAL","14:00","13:59",9,47,"NORMAL",17,"SWAP_COMPLETED",false,1320]
 ] as const;
-export const initialTrucks: Truck[] = raw.map(r=>({id:r[0],truckNumber:r[1],driverName:r[2],companyName:r[3],terminalId:r[4],terminalName:r[5],operationType:r[6],containerNumber:r[7],vehicleType:r[8],reservationTime:r[9],estimatedArrivalTime:r[10],distanceKm:r[11],averageSpeedKmh:r[12],trafficLevel:r[13],estimatedWaitingMinutes:r[14],status:r[15],urgentCargo:r[16],points:r[17]}));
+export const initialTrucks: Truck[] = raw.map(r=>({id:r[0],truckNumber:r[1],driverName:r[2],companyName:r[3],terminalId:r[4],terminalName:r[5],operationType:r[6],containerNumber:r[7],vehicleType:r[8],reservationTime:r[9],estimatedArrivalTime:r[10],distanceKm:r[11],averageSpeedKmh:r[12],trafficLevel:r[13],estimatedWaitingMinutes:r[14],status:r[15],urgentCargo:r[16]}));
