@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  Bell, ChartNoAxesCombined, Check, ChevronRight, Clock3, Container,
+  ArrowLeftRight, Bell, ChartNoAxesCombined, Check, ChevronRight, Clock3, Container,
   CircleHelp, Gauge, Home, ListFilter, MapPin, Menu, RefreshCw, Route, Ship, Sparkles, Truck as TruckIcon,
   Users, X, Zap
 } from "lucide-react";
@@ -46,6 +46,7 @@ export default function BlueSync() {
   const [swapLoading,setSwapLoading]=useState(false);
   const [guideOpen,setGuideOpen]=useState(false);
   const [guideStep,setGuideStep]=useState(0);
+  const [manualSwapOpen,setManualSwapOpen]=useState(false);
   const me = trucks[0];
   const candidates = useMemo(() => findSwapCandidates(me, trucks), [me, trucks]);
   const candidate = candidates[candidateIndex % Math.max(candidates.length,1)];
@@ -80,6 +81,15 @@ export default function BlueSync() {
     setView("home"); setTimeout(() => setNotice(""), 4500);
   };
   const reset = () => { setTrucks(initialTrucks); setNotice("데모 데이터가 초기화됐어요."); };
+  const manualSwap = (firstId:string,secondId:string) => {
+    const first = trucks.find(truck=>truck.id===firstId);
+    const second = trucks.find(truck=>truck.id===secondId);
+    if (!first || !second || first.id===second.id) return;
+    setTrucks(swapReservations(trucks,first.id,second.id));
+    setManualSwapOpen(false);
+    setNotice(`${first.truckNumber}와 ${second.truckNumber}의 예약 시간을 교환했습니다.`);
+    setTimeout(()=>setNotice(""),4500);
+  };
 
   if (!entered) return <>
     <main className="login">
@@ -121,7 +131,7 @@ export default function BlueSync() {
         {view === "swap" && <SwapScreen me={me} candidate={candidate} loading={swapLoading} onAccept={()=>setModal(true)} onReject={findNextCandidate} onNext={findNextCandidate}/>}
         {view === "queue" && <QueueScreen/>}
         {view === "analytics" && <AnalyticsScreen/>}
-        {view === "fleet" && <FleetScreen trucks={trucks}/>}
+        {view === "fleet" && <FleetScreen trucks={trucks} onManualSwap={role==="DISPATCHER"?()=>setManualSwapOpen(true):undefined}/>}
         {view === "terminal" && <TerminalScreen trucks={trucks}/>}
       </main>
       <nav className="bottom-nav">{NAV.map(({id,label,icon:Icon})=><button key={id} className={view===id?"active":""} onClick={()=>setView(id)}><Icon size={20}/><span>{label}</span></button>)}<button onClick={()=>setEntered(false)}><Menu size={20}/><span>돌아가기</span></button></nav>
@@ -131,6 +141,7 @@ export default function BlueSync() {
     {modal && <div className="modal-wrap" role="dialog" aria-modal="true"><div className="modal"><span className="modal-icon"><RefreshCw/></span><h2>예약을 교환할까요?</h2><p>내 예약과 <b>{candidate?.truck.truckNumber}</b> 차량의 예약 시간이 서로 변경됩니다. 완료 후에는 되돌릴 수 없어요.</p><div className="modal-summary"><span>예상 대기시간 절감</span><strong>-{candidate?.savedMinutes}분</strong></div><button className="primary" onClick={accept}>교환 확정하기</button><button className="ghost" onClick={()=>setModal(false)}>취소</button></div></div>}
     {routeModal && <RouteMapModal onClose={()=>setRouteModal(false)}/>}
     {guideOpen && <GuideModal step={guideStep} onStep={setGuideStep} onClose={closeGuide}/>}
+    {manualSwapOpen && <ManualSwapModal trucks={trucks} onClose={()=>setManualSwapOpen(false)} onSwap={manualSwap}/>}
   </div>;
 }
 
@@ -242,7 +253,32 @@ function TruckCompare({label,truck}:{label:string;truck:Truck}){return <article 
 
 function QueueScreen(){const spots=[{name:"부산항 신항 웅동 화물차휴게소",address:"경남 창원시 진해구 남문동 일원",lat:35.101,lng:128.759,note:"화물차 495면 규모"},{name:"웅동 화물차 섀시 주차장",address:"경남 창원시 진해구 남문동 1190-3",lat:35.104,lng:128.776,note:"섀시 약 250대"},{name:"부산신항국제터미널 PNIT",address:"부산 강서구 신항남로 330",lat:35.081,lng:128.8175,note:"호출 후 이동 목적지"}];return <><PageHead eyebrow="VIRTUAL QUEUE" title="가상 대기열" desc="항만 밖에서 편안하게 대기하고 호출 시간에 맞춰 출발하세요."/><section className="queue-hero"><div><small>현재 대기 순번</small><strong>12</strong><span>번째</span></div><div><small>예상 호출 시간</small><b>오전 11:42</b><p>약 42분 남음</p></div><div><small>터미널 혼잡도</small><b>높음</b><p>현재 38대 대기 중</p></div></section><div className="leave-alert"><Clock3/><div><b>호출 시간에 맞춰 항만으로 출발하세요</b><p>경로 확인에서 GPS 기반 예상 이동시간을 확인할 수 있습니다.</p></div></div><h2 className="subheading">실제 주변 대기 시설</h2><WaitingPlacesMap spots={spots}/><div className="place-list">{spots.map((s,i)=><article key={s.name}><span className="place-num">{i+1}</span><div><h3>{s.name}</h3><p><MapPin size={14}/>{s.address}</p></div><div className="amenities"><span>{s.note}</span></div><b className="free">지도 {i+1}</b></article>)}</div></>}
 function AnalyticsScreen(){return <><PageHead eyebrow="EFFICIENCY ANALYTICS" title="운송 효율 분석" desc="예약 교환으로 줄어든 시간과 비용을 한눈에 확인하세요."/><div className="metric-grid analytics-metrics"><Metric icon={Clock3} label="이번 달 절감 대기시간" value="8시간 24분" sub="지난달 대비 18% 향상"/><Metric icon={TruckIcon} label="감소한 지각 운행" value="14건" sub="정시 도착률 92%"/><Metric icon={Gauge} label="줄어든 공회전" value="5시간 10분" sub="연료 약 41L 절감"/><Metric icon={Sparkles} label="교환 참여" value="9회" sub="성공률 100%"/></div><section className="chart-card"><div><h2>교환 전·후 평균 대기시간</h2><p>단위: 분</p></div><ResponsiveContainer width="100%" height={280}><BarChart data={analytics}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="day" axisLine={false} tickLine={false}/><Tooltip/><Bar dataKey="before" name="교환 전" fill="#cbd5e1" radius={[6,6,0,0]}/><Bar dataKey="after" name="교환 후" fill="#0b7770" radius={[6,6,0,0]}/></BarChart></ResponsiveContainer></section></>}
-function FleetScreen({trucks}:{trucks:Truck[]}){const [filter,setFilter]=useState("전체");const fs=trucks.filter(t=>filter==="전체"||STATUS[t.status][0].includes(filter));return <><PageHead eyebrow="FLEET CONTROL" title="차량 운행 현황" desc={`${trucks.length}대 차량의 예약과 도착 상태를 확인하세요.`}/><div className="filters">{["전체","정상","조기","지각","교환"].map(f=><button className={filter===f?"active":""} key={f} onClick={()=>setFilter(f)}>{f}</button>)}</div><div className="fleet-table"><div className="table-head"><span>차량 / 기사</span><span>터미널</span><span>예약</span><span>예상 도착</span><span>상태</span><span>대기</span></div>{fs.map(t=><div className="table-row" key={t.id}><span><b>{t.truckNumber}</b><small>{maskPersonName(t.driverName)} · {t.companyName}</small></span><span>{t.terminalName}</span><span>{t.reservationTime}</span><span>{t.estimatedArrivalTime}</span><span><StatusBadge status={t.status}/></span><span><b>{t.estimatedWaitingMinutes}분</b></span></div>)}</div></>}
+function FleetScreen({trucks,onManualSwap}:{trucks:Truck[];onManualSwap?:()=>void}){const [filter,setFilter]=useState("전체");const fs=trucks.filter(t=>filter==="전체"||STATUS[t.status][0].includes(filter));return <><PageHead eyebrow="FLEET CONTROL" title="차량 운행 현황" desc={`${trucks.length}대 차량의 예약과 도착 상태를 확인하세요.`}/><div className="fleet-controls"><div className="filters">{["전체","정상","조기","지각","교환"].map(f=><button className={filter===f?"active":""} key={f} onClick={()=>setFilter(f)}>{f}</button>)}</div>{onManualSwap&&<button className="manual-swap-open" onClick={onManualSwap}><ArrowLeftRight size={17}/>수동 예약 교환</button>}</div><div className="fleet-table"><div className="table-head"><span>차량 / 기사</span><span>터미널</span><span>예약</span><span>예상 도착</span><span>상태</span><span>대기</span></div>{fs.map(t=><div className="table-row" key={t.id}><span><b>{t.truckNumber}</b><small>{maskPersonName(t.driverName)} · {t.companyName}</small></span><span>{t.terminalName}</span><span>{t.reservationTime}</span><span>{t.estimatedArrivalTime}</span><span><StatusBadge status={t.status}/></span><span><b>{t.estimatedWaitingMinutes}분</b></span></div>)}</div></>}
+
+function ManualSwapModal({trucks,onClose,onSwap}:{trucks:Truck[];onClose:()=>void;onSwap:(firstId:string,secondId:string)=>void}) {
+  const [firstId,setFirstId]=useState(trucks[0]?.id??"");
+  const [secondId,setSecondId]=useState(trucks[1]?.id??"");
+  const first=trucks.find(truck=>truck.id===firstId);
+  const second=trucks.find(truck=>truck.id===secondId);
+  const changeFirst=(id:string)=>{setFirstId(id);if(id===secondId)setSecondId(trucks.find(truck=>truck.id!==id)?.id??"")};
+  return <div className="manual-swap-wrap" role="dialog" aria-modal="true" aria-labelledby="manual-swap-title">
+    <section className="manual-swap-modal">
+      <div className="manual-swap-head"><div><small>DISPATCHER CONTROL</small><h2 id="manual-swap-title">수동 예약 교환</h2><p>교환할 차량 두 대를 직접 선택하세요.</p></div><button onClick={onClose} aria-label="수동 예약 교환 닫기"><X size={20}/></button></div>
+      <div className="manual-select-grid">
+        <label>첫 번째 차량<select value={firstId} onChange={event=>changeFirst(event.target.value)}>{trucks.map(truck=><option key={truck.id} value={truck.id}>{truck.truckNumber} · {maskPersonName(truck.driverName)} · {truck.reservationTime}</option>)}</select></label>
+        <span><ArrowLeftRight size={20}/></span>
+        <label>두 번째 차량<select value={secondId} onChange={event=>setSecondId(event.target.value)}>{trucks.filter(truck=>truck.id!==firstId).map(truck=><option key={truck.id} value={truck.id}>{truck.truckNumber} · {maskPersonName(truck.driverName)} · {truck.reservationTime}</option>)}</select></label>
+      </div>
+      {first&&second&&<div className="manual-preview">
+        <article><small>{first.truckNumber}</small><strong>{first.reservationTime}</strong><span>변경 후 {second.reservationTime}</span></article>
+        <ArrowLeftRight size={24}/>
+        <article><small>{second.truckNumber}</small><strong>{second.reservationTime}</strong><span>변경 후 {first.reservationTime}</span></article>
+      </div>}
+      <div className="manual-warning"><Clock3 size={18}/><p><b>예약 시간만 서로 교환됩니다.</b><br/>차량·기사·터미널 정보는 변경되지 않으며 교환 이력은 현재 기기에 저장됩니다.</p></div>
+      <div className="manual-swap-actions"><button onClick={onClose}>취소</button><button onClick={()=>onSwap(firstId,secondId)} disabled={!first||!second||firstId===secondId}>예약 시간 교환 확정</button></div>
+    </section>
+  </div>;
+}
 function TerminalScreen({trucks}:{trucks:Truck[]}){const data=[{t:"08시",r:8,c:12},{t:"09시",r:14,c:16},{t:"10시",r:21,c:18},{t:"11시",r:17,c:19},{t:"12시",r:11,c:17},{t:"13시",r:16,c:20},{t:"14시",r:19,c:21}];return <><PageHead eyebrow="TERMINAL OPERATIONS" title="부산신항 운영 대시보드" desc="시간대별 예약 밀도와 처리 가능 차량을 비교합니다."/><div className="impact-row"><div><small>오늘 예약 차량</small><strong>{trucks.length * 4}대</strong></div><div><small>현재 지각 예상</small><strong>{trucks.filter(t=>t.status==="LATE").length}대</strong></div><div><small>AI 교환 완료</small><strong>7건</strong></div></div><section className="chart-card"><div><h2>시간대별 예약 · 처리 용량</h2><p>현재 10시 혼잡 구간입니다</p></div><ResponsiveContainer width="100%" height={310}><AreaChart data={data}><defs><linearGradient id="teal" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0b7770" stopOpacity=".35"/><stop offset="100%" stopColor="#0b7770" stopOpacity=".02"/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="t" axisLine={false} tickLine={false}/><Tooltip/><Area type="monotone" dataKey="r" name="예약 차량" stroke="#0b7770" fill="url(#teal)" strokeWidth={3}/><Area type="monotone" dataKey="c" name="처리 가능" stroke="#e2a73b" fill="transparent" strokeWidth={2}/></AreaChart></ResponsiveContainer></section></>}
 function Empty({title,body}:{title:string;body:string}){return <div className="empty"><RefreshCw/><h2>{title}</h2><p>{body}</p></div>}
 
