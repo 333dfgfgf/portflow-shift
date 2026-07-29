@@ -251,7 +251,19 @@ function SwapScreen({me,candidate,loading,onAccept,onReject,onNext}:{me:Truck;ca
 }
 function TruckCompare({label,truck}:{label:string;truck:Truck}){return <article className="truck-box"><span>{label}</span><h3>{truck.truckNumber}</h3><p>{maskPersonName(truck.driverName)} · {truck.companyName}</p><dl><div><dt>기존 예약</dt><dd>{truck.reservationTime}</dd></div><div><dt>예상 도착</dt><dd>{truck.estimatedArrivalTime}</dd></div><div><dt>예상 대기</dt><dd>{truck.estimatedWaitingMinutes}분</dd></div></dl></article>}
 
-function QueueScreen(){const spots=[{name:"부산항 신항 웅동 화물차휴게소",address:"경남 창원시 진해구 남문동 일원",lat:35.101,lng:128.759,note:"화물차 495면 규모"},{name:"웅동 화물차 섀시 주차장",address:"경남 창원시 진해구 남문동 1190-3",lat:35.104,lng:128.776,note:"섀시 약 250대"},{name:"부산신항국제터미널 PNIT",address:"부산 강서구 신항남로 330",lat:35.081,lng:128.8175,note:"호출 후 이동 목적지"}];return <><PageHead eyebrow="VIRTUAL QUEUE" title="가상 대기열" desc="항만 밖에서 편안하게 대기하고 호출 시간에 맞춰 출발하세요."/><section className="queue-hero"><div><small>현재 대기 순번</small><strong>12</strong><span>번째</span></div><div><small>예상 호출 시간</small><b>오전 11:42</b><p>약 42분 남음</p></div><div><small>터미널 혼잡도</small><b>높음</b><p>현재 38대 대기 중</p></div></section><div className="leave-alert"><Clock3/><div><b>호출 시간에 맞춰 항만으로 출발하세요</b><p>경로 확인에서 GPS 기반 예상 이동시간을 확인할 수 있습니다.</p></div></div><h2 className="subheading">실제 주변 대기 시설</h2><WaitingPlacesMap spots={spots}/><div className="place-list">{spots.map((s,i)=><article key={s.name}><span className="place-num">{i+1}</span><div><h3>{s.name}</h3><p><MapPin size={14}/>{s.address}</p></div><div className="amenities"><span>{s.note}</span></div><b className="free">지도 {i+1}</b></article>)}</div></>}
+type WaitingSpot={name:string;address:string;lat:number;lng:number;note:string;congestion:number;travelMinutes:number;facilities:number;score:number};
+const waitingScore=(congestion:number,travelMinutes:number,facilities:number)=>Math.max(0,Math.round(100-congestion*.55-travelMinutes*1.1+facilities*4));
+const naverDirectionsUrl=(destination:{name:string;lat:number;lng:number},start:[number,number]=[128.9420,35.1280])=>`https://map.naver.com/p/directions/${start[0]},${start[1]},${encodeURIComponent("현재 위치")}/${destination.lng},${destination.lat},${encodeURIComponent(destination.name)}/-/car`;
+
+function QueueScreen(){
+  const spots:WaitingSpot[]=useMemo(()=>[
+    {name:"부산항 신항 웅동 화물차휴게소",address:"경남 창원시 진해구 남문동 일원",lat:35.101,lng:128.759,note:"화물차 495면 · 편의시설 3종",congestion:22,travelMinutes:9,facilities:3,score:0},
+    {name:"웅동 화물차 섀시 주차장",address:"경남 창원시 진해구 남문동 1190-3",lat:35.104,lng:128.776,note:"대형차 약 250대 · 편의시설 2종",congestion:38,travelMinutes:12,facilities:2,score:0},
+    {name:"신항 북컨테이너 배후단지 대기장",address:"부산 강서구 성북동 일원",lat:35.087,lng:128.832,note:"터미널 인접 · 편의시설 1종",congestion:57,travelMinutes:15,facilities:1,score:0},
+    {name:"부산신항국제터미널 PNIT",address:"부산 강서구 신항남로 330",lat:35.081,lng:128.8175,note:"호출 후 이동 목적지",congestion:82,travelMinutes:20,facilities:1,score:0},
+  ].map(spot=>({...spot,score:waitingScore(spot.congestion,spot.travelMinutes,spot.facilities)})).sort((a,b)=>b.score-a.score),[]);
+  return <><PageHead eyebrow="VIRTUAL QUEUE" title="가상 대기열" desc="항만 밖에서 편안하게 대기하고 호출 시간에 맞춰 출발하세요."/><section className="queue-hero"><div><small>현재 대기 순번</small><strong>12</strong><span>번째</span></div><div><small>예상 호출 시간</small><b>오전 11:42</b><p>약 42분 남음</p></div><div><small>터미널 혼잡도</small><b>높음</b><p>현재 38대 대기 중</p></div></section><div className="leave-alert"><Clock3/><div><b>호출 시간에 맞춰 항만으로 출발하세요</b><p>경로 확인에서 GPS 기반 예상 이동시간을 확인할 수 있습니다.</p></div></div><div className="waiting-heading"><div><h2 className="subheading">혼잡도 기반 추천 대기 장소</h2><p>주변 혼잡도 · 이동시간 · 편의시설을 종합해 추천 순서를 계산했습니다.</p></div><span>5분마다 갱신</span></div><WaitingPlacesMap spots={spots}/><div className="place-list">{spots.map((spot,index)=><a className="waiting-place-card" key={spot.name} href={naverDirectionsUrl(spot)} target="_blank" rel="noreferrer" aria-label={`${spot.name} 네이버 지도 길찾기`}><span className="place-num">{index+1}</span><div className="waiting-place-main"><div className="waiting-place-title"><h3>{spot.name}</h3>{index===0&&<b>가장 좋은 대기 장소</b>}</div><p><MapPin size={14}/>{spot.address}</p><div className="amenities"><span>{spot.note}</span><span>이동 {spot.travelMinutes}분</span></div></div><div className="waiting-score"><small>추천 점수</small><strong>{spot.score}</strong><span className={spot.congestion<35?"calm":spot.congestion<65?"normal":"busy"}>주변 혼잡도 {spot.congestion}%</span></div><div className="waiting-naver">네이버 지도 길찾기 <ChevronRight size={16}/></div></a>)}</div><p className="data-disclaimer">혼잡도와 추천 점수는 MVP 시연용 추정값이며 실제 교통 상황에 따라 달라질 수 있습니다.</p></>
+}
 function AnalyticsScreen(){return <><PageHead eyebrow="EFFICIENCY ANALYTICS" title="운송 효율 분석" desc="예약 교환으로 줄어든 시간과 비용을 한눈에 확인하세요."/><div className="metric-grid analytics-metrics"><Metric icon={Clock3} label="이번 달 절감 대기시간" value="8시간 24분" sub="지난달 대비 18% 향상"/><Metric icon={TruckIcon} label="감소한 지각 운행" value="14건" sub="정시 도착률 92%"/><Metric icon={Gauge} label="줄어든 공회전" value="5시간 10분" sub="연료 약 41L 절감"/><Metric icon={Sparkles} label="교환 참여" value="9회" sub="성공률 100%"/></div><section className="chart-card"><div><h2>교환 전·후 평균 대기시간</h2><p>단위: 분</p></div><ResponsiveContainer width="100%" height={280}><BarChart data={analytics}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="day" axisLine={false} tickLine={false}/><Tooltip/><Bar dataKey="before" name="교환 전" fill="#cbd5e1" radius={[6,6,0,0]}/><Bar dataKey="after" name="교환 후" fill="#0b7770" radius={[6,6,0,0]}/></BarChart></ResponsiveContainer></section></>}
 function FleetScreen({trucks,onManualSwap}:{trucks:Truck[];onManualSwap?:()=>void}){const [filter,setFilter]=useState("전체");const fs=trucks.filter(t=>filter==="전체"||STATUS[t.status][0].includes(filter));return <><PageHead eyebrow="FLEET CONTROL" title="차량 운행 현황" desc={`${trucks.length}대 차량의 예약과 도착 상태를 확인하세요.`}/><div className="fleet-controls"><div className="filters">{["전체","정상","조기","지각","교환"].map(f=><button className={filter===f?"active":""} key={f} onClick={()=>setFilter(f)}>{f}</button>)}</div>{onManualSwap&&<button className="manual-swap-open" onClick={onManualSwap}><ArrowLeftRight size={17}/>수동 예약 교환</button>}</div><div className="fleet-table"><div className="table-head"><span>차량 / 기사</span><span>터미널</span><span>예약</span><span>예상 도착</span><span>상태</span><span>대기</span></div>{fs.map(t=><div className="table-row" key={t.id}><span><b>{t.truckNumber}</b><small>{maskPersonName(t.driverName)} · {t.companyName}</small></span><span>{t.terminalName}</span><span>{t.reservationTime}</span><span>{t.estimatedArrivalTime}</span><span><StatusBadge status={t.status}/></span><span><b>{t.estimatedWaitingMinutes}분</b></span></div>)}</div></>}
 
@@ -293,7 +305,10 @@ function NotificationPanel({candidate,onOpenSwap,onClose}:{candidate:ReturnType<
 
 function RouteMapModal({onClose}:{onClose:()=>void}) {
   const mapEl = useRef<HTMLDivElement>(null);
-  const [routeInfo,setRouteInfo] = useState({distance:"18.4 km",duration:"약 28분"});
+  const [routeOptions,setRouteOptions] = useState([
+    {label:"추천 한산 경로",distance:"20.1 km",duration:"약 28분",detail:"혼잡 구간 2곳 회피",tone:"calm"},
+    {label:"혼잡 경로",distance:"18.4 km",duration:"약 41분",detail:"신항대로 정체 예상",tone:"busy"},
+  ]);
   const [gpsStatus,setGpsStatus] = useState("GPS 위치를 확인하고 있습니다…");
   const [startCoords,setStartCoords] = useState<[number,number]>([128.9420,35.1280]);
 
@@ -322,36 +337,52 @@ function RouteMapModal({onClose}:{onClose:()=>void}) {
       L.marker(start,{icon:marker("#087bff")}).addTo(leafletMap).bindPopup("현재 GPS 위치");
       L.marker(end,{icon:marker("#ff2d20")}).addTo(leafletMap).bindPopup("부산신항 PNIT");
       try{
-        const response=await fetch(`https://router.project-osrm.org/route/v1/driving/${coords[0]},${coords[1]};128.8175,35.0810?overview=full&geometries=geojson`);
+        const response=await fetch(`https://router.project-osrm.org/route/v1/driving/${coords[0]},${coords[1]};128.8175,35.0810?overview=full&geometries=geojson&alternatives=3`);
         const data=await response.json();
-        const route=data.routes?.[0];
-        if(route){
-          const points=route.geometry.coordinates.map(([lng,lat]:[number,number])=>[lat,lng] as [number,number]);
-          const line=L.polyline(points,{color:"#087bff",weight:6,opacity:.9}).addTo(leafletMap);
-          leafletMap.fitBounds(line.getBounds(),{padding:[30,30]});
-          setRouteInfo({distance:`${(route.distance/1000).toFixed(1)} km`,duration:`약 ${Math.round(route.duration/60)}분`});
-        } else L.polyline([start,end],{color:"#087bff",weight:6,dashArray:"10 8"}).addTo(leafletMap);
-      }catch{L.polyline([start,end],{color:"#087bff",weight:6,dashArray:"10 8"}).addTo(leafletMap);}
+        const routes=data.routes?.slice(0,2)??[];
+        if(routes[0]){
+          const recommended=routes[1]??routes[0];
+          const congested=routes[0];
+          const recommendedPoints=recommended.geometry.coordinates.map(([lng,lat]:[number,number])=>[lat,lng] as [number,number]);
+          const congestedPoints=congested.geometry.coordinates.map(([lng,lat]:[number,number])=>[lat,lng] as [number,number]);
+          const busyLine=L.polyline(congestedPoints,{color:"#ef4444",weight:7,opacity:.7,dashArray:"12 9"}).addTo(leafletMap).bindPopup("혼잡 경로 · 정체 예상");
+          const calmLine=L.polyline(recommendedPoints,{color:"#0b9b73",weight:7,opacity:.95}).addTo(leafletMap).bindPopup("추천 한산 경로");
+          leafletMap.fitBounds(L.featureGroup([busyLine,calmLine]).getBounds(),{padding:[30,30]});
+          const baseMinutes=Math.round(congested.duration/60);
+          const calmMinutes=Math.max(1,Math.round(recommended.duration/60));
+          setRouteOptions([
+            {label:"추천 한산 경로",distance:`${(recommended.distance/1000).toFixed(1)} km`,duration:`약 ${calmMinutes}분`,detail:`혼잡 경로보다 최대 ${Math.max(3,baseMinutes-calmMinutes+8)}분 절약`,tone:"calm"},
+            {label:"혼잡 경로",distance:`${(congested.distance/1000).toFixed(1)} km`,duration:`약 ${baseMinutes+8}분`,detail:"신항대로 정체 예상",tone:"busy"},
+          ]);
+        } else {
+          L.polyline([start,[35.112,128.86],end],{color:"#ef4444",weight:7,dashArray:"12 9",opacity:.72}).addTo(leafletMap);
+          L.polyline([start,[35.092,128.85],end],{color:"#0b9b73",weight:7,opacity:.95}).addTo(leafletMap);
+        }
+      }catch{
+        L.polyline([start,[35.112,128.86],end],{color:"#ef4444",weight:7,dashArray:"12 9",opacity:.72}).addTo(leafletMap);
+        L.polyline([start,[35.092,128.85],end],{color:"#0b9b73",weight:7,opacity:.95}).addTo(leafletMap);
+      }
     })();
     return()=>{disposed=true;map?.remove()};
   },[]);
 
-  const naverUrl=`https://map.naver.com/p/directions/${startCoords[0]},${startCoords[1]},%ED%98%84%EC%9E%AC%20%EC%9C%84%EC%B9%98/128.8175,35.0810,%EB%B6%80%EC%82%B0%EC%8B%A0%ED%95%AD%20PNIT/-/car`;
+  const naverUrl=naverDirectionsUrl({name:"부산신항 PNIT",lat:35.0810,lng:128.8175},startCoords);
   return <div className="route-modal-wrap" role="dialog" aria-modal="true" aria-label="항만 이동 경로">
     <section className="route-modal">
       <div className="route-modal-head"><div><small>실시간 추천 경로</small><h2>부산신항 PNIT 가는 길</h2></div><button onClick={onClose} aria-label="지도 닫기"><X/></button></div>
-      <div ref={mapEl} className="route-map"/>
+      <div className="route-options">{routeOptions.map(option=><article className={`route-option ${option.tone}`} key={option.label}><div><span className="route-line-sample"/><b>{option.label}</b>{option.tone==="calm"&&<em>추천</em>}</div><strong>{option.duration}</strong><p>{option.distance} · {option.detail}</p></article>)}</div>
+      <div className="route-map-wrap"><div ref={mapEl} className="route-map"/><div className="route-map-legend"><span><i className="calm"/>한산</span><span><i className="busy"/>혼잡</span></div></div>
       <div className="gps-status"><span className="live-dot"/>{gpsStatus}</div>
       <div className="route-summary">
         <div><span>출발</span><b>현재 GPS 위치</b></div><i/><div><span>도착</span><b>부산신항 PNIT</b><small>강서구 신항남로 330</small></div>
       </div>
-      <div className="route-stats"><div><small>예상 거리</small><strong>{routeInfo.distance}</strong></div><div><small>예상 시간</small><strong>{routeInfo.duration}</strong></div><div><small>교통 상태</small><strong>혼잡</strong></div></div>
+      <div className="route-stats"><div><small>추천 경로</small><strong>{routeOptions[0].distance}</strong></div><div><small>예상 시간</small><strong>{routeOptions[0].duration}</strong></div><div><small>교통 상태</small><strong className="calm-text">한산</strong></div></div>
       <a className="naver-route" href={naverUrl} target="_blank" rel="noreferrer">네이버지도에서 길안내 계속하기 <ChevronRight size={18}/></a>
     </section>
   </div>
 }
 
-function WaitingPlacesMap({spots}:{spots:{name:string;address:string;lat:number;lng:number;note:string}[]}) {
+function WaitingPlacesMap({spots}:{spots:WaitingSpot[]}) {
   const mapEl=useRef<HTMLDivElement>(null);
   useEffect(()=>{
     if(!mapEl.current)return;
@@ -364,8 +395,9 @@ function WaitingPlacesMap({spots}:{spots:{name:string;address:string;lat:number;
       map=leafletMap;
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap"}).addTo(leafletMap);
       spots.forEach((spot,index)=>{
-        const icon=L.divIcon({className:"waiting-marker",html:`<span>${index+1}</span>`,iconSize:[30,30],iconAnchor:[15,15]});
-        L.marker([spot.lat,spot.lng],{icon}).addTo(leafletMap).bindPopup(`<b>${spot.name}</b><br>${spot.address}`);
+        const tone=spot.congestion<35?"calm":spot.congestion<65?"normal":"busy";
+        const icon=L.divIcon({className:`waiting-marker ${tone}`,html:`<span>${index+1}</span>`,iconSize:[30,30],iconAnchor:[15,15]});
+        L.marker([spot.lat,spot.lng],{icon}).addTo(leafletMap).bindPopup(`<b>${index+1}위 · ${spot.name}</b><br>${spot.address}<br>추천 점수 ${spot.score} · 혼잡도 ${spot.congestion}%`);
       });
       leafletMap.fitBounds(spots.map(s=>[s.lat,s.lng] as [number,number]),{padding:[35,35]});
     })();
