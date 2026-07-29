@@ -115,7 +115,10 @@ export default function BlueSync() {
   </div>;
 }
 
-function Logo(){return <img className="bluesync-logo" src="/brand/bluesync-logo.png" alt="BlueSync"/>}
+function Logo(){
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  return <img className="bluesync-logo" src={`${basePath}/brand/bluesync-logo.png`} alt="BlueSync"/>;
+}
 function PageHead({eyebrow,title,desc}:{eyebrow:string;title:string;desc:string}){return <div className="page-head"><div><span>{eyebrow}</span><h1>{title}</h1><p>{desc}</p></div><button className="icon-btn"><Bell size={19}/></button></div>}
 function StatusBadge({status}:{status:Truck["status"]}){const [label,tone]=STATUS[status];return <span className={`badge ${tone}`}><i/>{label}</span>}
 
